@@ -1,0 +1,27 @@
+Ryzen 5950x; RTX 3080; 128Gb 3600 MHz RAM; 1 Tb SSD
+Recorded Aug 27, 2021
+
+Procedure: Run benchmark.py with the arguments specified in each test. For later tests, use the winning configuration of earlier tests to boost throughput.
+Run the benchmark for 1 min per test. Record the number of cycles per test. Scale by batch size to get score. 
+
+Tests:
+
+1. Test FP-32 vs FP-16 at the same batch size. (8092 and 32 layers of ResNet)
+FP-32: 350 cycles, uses ~5 GB of memory
+FP-16: 650 cycles, uses ~4.2 GB of memory (85% better than FP-32)
+
+1.5. Test autocasting vs native FP-16
+native (except for y-vals): 640 cycles, uses ~4.2 MB memory
+autocasting FP-32 to FP-16: 410 cycles, uses ~4 MB of memory (64% of native performance, 17% better than FP-32)
+
+2. Test batch size with the winning data type.
+4046: 2.7 GB memory, 1260 cycles --> 630 equivalent
+8092:  4.2 GB memory, 650 cycles --> this is pretty close to the sweet spot.
+12138: 6.3 GB memory, 420 cycles --> 630 equivalent 
+16184: 6.8 GB memory, 310 cycles --> 620 equivalent
+
+3. Test sparse effects with different activation functions
+ReLU: 650 cycles
+LeakyReLU: 640 cycles (minimal difference)
+
+
