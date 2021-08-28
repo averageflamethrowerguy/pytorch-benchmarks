@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 
 output_dim = 1
-scan_period = 3
+scan_period = 7
+depth_multiplier =6
 
 class ResChunk(nn.Module):
   def __init__(self, in_channels, out_channels):
@@ -24,15 +25,15 @@ class MLP(nn.Module):
     super(MLP, self).__init__()
 
     self.upscale = nn.Sequential(
-      nn.Conv1d(in_channels=NUM_FEATURES, out_channels=2*NUM_FEATURES, kernel_size=(1)),
+      nn.Conv1d(in_channels=NUM_FEATURES, out_channels=depth_multiplier*NUM_FEATURES, kernel_size=(1)),
       nn.Tanh()
     )
     self.convolutions = nn.ModuleList()
     for i in range(number_conv_steps):
-      self.convolutions.append(ResChunk(in_channels=2*NUM_FEATURES, out_channels=2*NUM_FEATURES))
+      self.convolutions.append(ResChunk(in_channels=depth_multiplier*NUM_FEATURES, out_channels=depth_multiplier*NUM_FEATURES))
 
     self.downscale = nn.Sequential(
-      nn.Conv1d(in_channels=2*NUM_FEATURES, out_channels=1, kernel_size=(1)),
+      nn.Conv1d(in_channels=depth_multiplier*NUM_FEATURES, out_channels=1, kernel_size=(1)),
       nn.Tanh()
     )
     

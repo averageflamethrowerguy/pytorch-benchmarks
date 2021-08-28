@@ -6,14 +6,19 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import Dataset
 import MLP
+import sys
+sys.path.append('../')
+
+from utilities import run
 
 writer = SummaryWriter()
 
-BATCH_SIZE=8092
+BATCH_SIZE=8184
 max_epochs = 10000
 number_conv_steps =32
 LOOKBACK_DISTANCE=256
 PREDICTION_RANGE=1
+RUN_TIME=30000
 
 torch.backends.cudnn.benchmark = True
 
@@ -60,10 +65,19 @@ xval_tensor[np.isnan(xval_tensor)] = 0  # takes care of 8 nan values that slippe
 xval_train = xval_tensor[:train_set_size + LOOKBACK_DISTANCE]
 xval_test = xval_tensor[train_set_size:]
 
-dtype = torch.float16
+dtype = torch.float32
 
-train_set = Dataset.Dataset(yval_train.cuda().to(torch.float32), xval_train.cuda().to(dtype), LOOKBACK_DISTANCE)
-test_set = Dataset.Dataset(yval_test.cuda(), xval_test.cuda().to(dtype), LOOKBACK_DISTANCE)
+train_set = Dataset.Dataset(
+     yval_train.cuda().to(torch.float32), 
+     xval_train.cuda().to(dtype), 
+     LOOKBACK_DISTANCE
+)
+
+test_set = Dataset.Dataset(
+     yval_test.cuda(), 
+     xval_test.cuda().to(dtype), 
+     LOOKBACK_DISTANCE
+)
 
 params = {'batch_size': BATCH_SIZE, 'shuffle': False}
 
@@ -87,7 +101,7 @@ model = MLP.MLP(
     number_conv_steps=number_conv_steps
 )
 
-model.cuda().to(dtype)
+model.cuda().to(torch.float32)
 model.apply(init_weights)
 
 loss_fn = torch.nn.MSELoss(size_average=True).cuda()
@@ -95,46 +109,4 @@ LEARNING_RATE = 0.000001
          
 optimizer = torch.optim.Adam(model.parameters(), LEARNING_RATE)
 
-from torch.cuda.amp import GradScaler
-from torch.cuda.amp import autocast
-
-scaler = GradScaler()
-
-torch.cuda.empty_cache()
-
-iteration = 0
-for epoch in range(max_epochs):
-
-    train_loss = 0
-    test_loss = 0
-
-    for local_batch, local_labels in train_generator:
-        optimizer.zero_grad()
-        with autocast():
-            local_labels_pred = model(local_batch)
-            train_loss = loss_fn(local_labels_pred, local_labels)
-        del local_batch, local_labels, local_labels_pred
-        # Backward pass (FP 32 or native FP 16)
-        # train_loss.backward()
-        # optimizer.step()        
-
-        # Backward pass (FP 16 autocast)
-        scaler.scale(train_loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        #Validation ...
-        if (iteration % 10 == 0):
-            with torch.set_grad_enabled(False):
-                for local_batch, local_labels in test_generator:
-                     local_batch, local_labels = local_batch, local_labels
-                     local_labels_pred = model(local_batch)
-                     test_loss = loss_fn(local_labels_pred, local_labels)
-                     del local_batch, local_labels, local_labels_pred
-                     break
-                writer.add_scalar('Loss/train', train_loss, iteration)
-                writer.add_scalar('Loss/test', test_loss, iteration)
-                print (iteration)
-        iteration += 1
-
-torch.cuda.empty_cache
+run.run(model, optimizer, loss_fn, max_epochs, train_generator, test_generator, writer, RUN_TIME, WILL_CHECK_TIMINGS=True, USE_AUTOCAST=True)

@@ -11,10 +11,11 @@ FP-32: 350 cycles, uses ~5 GB of memory
 FP-16: 650 cycles, uses ~4.2 GB of memory (85% better than FP-32)
 
 1.5. Test autocasting vs native FP-16
-native (except for y-vals): 640 cycles, uses ~4.2 MB memory
+native (except for y-vals): 640 cycles, uses ~4.2 MB memory (Note that this is NOT recommended -- it's preferred to have "master" FP-32 weights on the model and cast to FP-16.
 autocasting FP-32 to FP-16: 410 cycles, uses ~4 MB of memory (64% of native performance, 17% better than FP-32)
 
 2. Test batch size with the winning data type.
+None of these settings had more than ~70% GPU utilization
 4046: 2.7 GB memory, 1260 cycles --> 630 equivalent
 8092:  4.2 GB memory, 650 cycles --> this is pretty close to the sweet spot.
 12138: 6.3 GB memory, 420 cycles --> 630 equivalent 
@@ -24,4 +25,37 @@ autocasting FP-32 to FP-16: 410 cycles, uses ~4 MB of memory (64% of native perf
 ReLU: 650 cycles
 LeakyReLU: 640 cycles (minimal difference)
 
+4. torch.channels_last effects:
+irrelevant for non-images
 
+5. Where are we losing performance in native FP-16 vs autocasting?
+run test for 30 secs of function time (somewhat higher irl), record amount of time used in evaluating local_labels_pred, calculating train_loss, running backprop step
+
+autocasting: 258 iters, 4.99s eval time, 0.41s loss fn time, 23.2s backprop time, 1.39s remainder, 7.81s overhead
+native FP-16: 338 iters, 6.5s eval time, 0.54s loss fn time, 22.0s backprop time, 0.96s remainder, 10.2s overhead
+              31% gain,  30% gain,       32% gain,           5.2% loss,           31% loss,        31% gain.
+
+The overall speed comparison at this point is (338 / 40.2) / (258 / 37.8) => 23% additional performance for FP-16 
+(this is being diluted by the overhead category, which is probably mostly cost from the synchronize() function).
+Pretty clearly FP-16 only benefits in backprop and remainder categories. Otherwise, time cost scales with speed.
+
+6. While using autocast, compare performance of different CNN kernel widths.
+3:  258 iters in 37.84s
+5:  245 iters in 37.72s (95% cycles, 2.64x throughput, 1.58x width advantage)
+7.  234 iters in 37.17s (92% cycles, 5x throughput, 2.15x width advantage)
+9.  187 iters in 35.79s (76.6% cycles, 6.89x throughput, 2.298x width advantage)
+13. 181 iters in 35.70s (74.3% cycles, 13.95x throughput, 3.22x width advantage)
+17. 180 iters in 35.61s (74.1% cycles, 23.79x throughput, 4.20x width advantage)
+(maybe the later ops are easier because of padding reducing the area of the convolution that contains interesting information?)
+
+7. Using a kernel size of 7, increase depth:
+6: 234 iters in 37.17s (4 GB RAM)
+12: 169 iters in 35.30s (5.410 GB RAM) (76.0% cycles, 3.04x throughput, 1.52x height advantage)
+18: 116 iters in 33.60s (7.247 GB RAM) (54.8% cycles, 4.93x throughput, 1.644x height advantage)
+24: Out of memory
+
+8. Comparison of width 7, depth 18 autocast vs fp-16
+fp-32 (half batch size): 108.5 iters on 33.30s (6.857 GB RAM)
+autocast: 116 iters on 33.60s (7.247 GB RAM) (6% improvement over fp-32) --> mostly autocast just grants mem savings
+fp-16: 130 iters on 34s (7145 GB RAM) (10.8% improvement over autocast)
+--> this suggests that fp-16 only has much higher perf over autocast when models are light (?)
